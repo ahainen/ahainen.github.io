@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Kick</title>
+
     <style>
       img {
         position: relative;
@@ -43,7 +44,9 @@
     <div class="hint" id="status">Connecting…</div>
 
     <script type="module">
-      // Fill these in (same as overlay page)
+      // -------------------------
+      // Supabase setup
+      // -------------------------
       const SUPABASE_URL = "https://rcwvicblzidaukglxquu.supabase.co";
       const SUPABASE_ANON_KEY =
         "sb_publishable_7to8QZuk22ORD8SnfiSRjg_U7f7EeQ0";
@@ -57,7 +60,6 @@
       const { createClient } =
         await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
       const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
       const channel = supabase.channel(CHANNEL);
 
       btn.disabled = true;
@@ -81,16 +83,92 @@
         statusEl.textContent = "Failed to connect";
       }
 
-      // Optional: local per-user rate limit so one person can't spam-click
+      // -------------------------
+      // SFX (overlapping / random)
+      // -------------------------
+      const SFX_COUNT = 15;
+      const SFX_PATHS = Array.from(
+        { length: SFX_COUNT },
+        (_, i) => `sfx/sfx${i + 1}.mp3`
+      );
+
+      const SFX_VOLUME = 0.9;
+      const MAX_VOICES = 10;
+
+      let audioCtx = null;
+      let sfxBuffers = null;
+      let activeVoices = 0;
+
+      function ensureAudioCtx() {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        return audioCtx;
+      }
+
+      async function preloadSfx() {
+        const ctx = ensureAudioCtx();
+
+        const buffers = await Promise.all(
+          SFX_PATHS.map(async (url) => {
+            const res = await fetch(url, { cache: "force-cache" });
+            if (!res.ok) throw new Error(`SFX fetch failed: ${url}`);
+            const arr = await res.arrayBuffer();
+            return await ctx.decodeAudioData(arr);
+          })
+        );
+
+        sfxBuffers = buffers;
+        console.log("[sfx] preloaded", sfxBuffers.length);
+      }
+
+      function pickRandom(arr) {
+        return arr[(Math.random() * arr.length) | 0];
+      }
+
+      async function playRandomSfx() {
+        const ctx = ensureAudioCtx();
+        if (ctx.state !== "running") await ctx.resume();
+        if (!sfxBuffers) return;
+        if (activeVoices >= MAX_VOICES) return;
+
+        const source = ctx.createBufferSource();
+        source.buffer = pickRandom(sfxBuffers);
+
+        const gain = ctx.createGain();
+        gain.gain.value = SFX_VOLUME;
+
+        source.connect(gain);
+        gain.connect(ctx.destination);
+
+        activeVoices++;
+        source.onended = () => {
+          activeVoices = Math.max(0, activeVoices - 1);
+          source.disconnect();
+          gain.disconnect();
+        };
+
+        source.start(0);
+      }
+
+      preloadSfx().catch((e) =>
+        console.warn("[sfx] preload failed:", e)
+      );
+
+      // -------------------------
+      // Button broadcast + sound
+      // -------------------------
       const LOCAL_COOLDOWN_MS = 250;
       let lastSent = 0;
 
       btn.addEventListener("click", async () => {
+        // play sound instantly (can overlap)
+        playRandomSfx();
+
         const now = Date.now();
         if (now - lastSent < LOCAL_COOLDOWN_MS) return;
         lastSent = now;
 
-        // Broadcast to everyone listening (including multiple OBS instances)
         const { error: sendErr } = await channel.send({
           type: "broadcast",
           event: EVENT,
@@ -100,10 +178,10 @@
         if (sendErr) console.error("Send error:", sendErr);
       });
 
+      // -------------------------
+      // Button scale animation
+      // -------------------------
       (function () {
-        const btn = document.getElementById("kickBtn");
-
-        // Base translate must always be included so we don't fight layout/positioning.
         const BASE = "translate(-50%, -50%)";
         const SCALE = {
           up: 1.0,
@@ -119,34 +197,34 @@
           btn.style.transform = `${BASE} scale(${s})`;
         }
 
-        // Hover state
         btn.addEventListener("mouseenter", () => {
           hovered = true;
           apply();
         });
+
         btn.addEventListener("mouseleave", () => {
           hovered = false;
-          down = false; // if they drag out while holding
+          down = false;
           apply();
         });
 
-        // Press state (mouse)
         btn.addEventListener("mousedown", (e) => {
-          if (e.button !== 0) return; // left click only
+          if (e.button !== 0) return;
           down = true;
           apply();
 
-          // If mouseup happens off-button, reset.
           const onUp = () => {
             down = false;
             apply();
             cleanup();
           };
+
           const onBlur = () => {
             down = false;
             apply();
             cleanup();
           };
+
           function cleanup() {
             window.removeEventListener("mouseup", onUp, true);
             window.removeEventListener("blur", onBlur, true);
@@ -156,9 +234,7 @@
           window.addEventListener("blur", onBlur, true);
         });
 
-        // Touch/pen/trackpad (pointer events) — robust for fast taps
         btn.addEventListener("pointerdown", (e) => {
-          // avoid double-firing with mousedown on some browsers: ignore mouse pointers here
           if (e.pointerType === "mouse") return;
           down = true;
           apply();
@@ -172,13 +248,11 @@
           btn.releasePointerCapture?.(e.pointerId);
         });
 
-        btn.addEventListener("pointercancel", (e) => {
-          if (e.pointerType === "mouse") return;
+        btn.addEventListener("pointercancel", () => {
           down = false;
           apply();
         });
 
-        // Keyboard press (Space/Enter)
         btn.addEventListener("keydown", (e) => {
           if (e.repeat) return;
           if (e.key === " " || e.key === "Enter") {
@@ -186,6 +260,7 @@
             apply();
           }
         });
+
         btn.addEventListener("keyup", (e) => {
           if (e.key === " " || e.key === "Enter") {
             down = false;
@@ -193,7 +268,6 @@
           }
         });
 
-        // Init
         apply();
       })();
     </script>
