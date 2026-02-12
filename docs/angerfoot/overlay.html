@@ -41,12 +41,46 @@
         z-index: 2;
       }
 
+      /* ---------- BULLETS (slinky bob) ---------- */
       .bullet {
         width: 60px;
         align-self: center;
-        position: relative;
-        z-index:10;
+        position: relative; /* relative so translateY doesn't affect other layout weirdness */
+        z-index: 10;
+
+        /* tweakables */
+        --amp: 10px;     /* how far up/down */
+        --dur: 5.5s;     /* speed */
+        --delay: 0s;     /* phase offset per bullet */
+
+        animation: bob var(--dur) ease-in-out infinite;
+        animation-delay: var(--delay);
+
+        will-change: transform;
+        transform: translateZ(0);
       }
+
+      /* smoother-than-triangle “sine-ish” bob */
+      @keyframes bob {
+        0%   { transform: translateY(0); }
+        12.5%{ transform: translateY(calc(var(--amp) * -0.7)); }
+        25%  { transform: translateY(calc(var(--amp) * -1)); }
+        37.5%{ transform: translateY(calc(var(--amp) * -0.7)); }
+        50%  { transform: translateY(0); }
+        62.5%{ transform: translateY(calc(var(--amp) * 0.7)); }
+        75%  { transform: translateY(var(--amp)); }
+        87.5%{ transform: translateY(calc(var(--amp) * 0.7)); }
+        100% { transform: translateY(0); }
+      }
+
+      /* phase offsets (negative so it starts moving immediately in OBS) */
+      .bullet:nth-child(1) { --delay: -0.00s; }
+      .bullet:nth-child(2) { --delay: -0.25s; }
+      .bullet:nth-child(3) { --delay: -0.50s; }
+      .bullet:nth-child(4) { --delay: -0.75s; }
+      .bullet:nth-child(5) { --delay: -1.00s; }
+      .bullet:nth-child(6) { --delay: -1.25s; }
+      /* ------------------------------------------ */
 
       #kickAnimWrap {
         position: absolute;
